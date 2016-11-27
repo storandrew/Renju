@@ -201,23 +201,22 @@ class TwoVarQuadricFunction(object):
 
 # In[13]:
 
-def GradientDescent(function, x_0, y_0, lim=-1, alpha=0.1, epsilon=1E-5):
+def GradientDescent(function, x_0, y_0, iterations=-1, alpha=0.1, epsilon=1E-5):
     x, y = x_0, y_0
     in_minimum = False
     x_row = [x]
     y_row = [y]
-    while not in_minimum and lim != 0:
+    while not in_minimum and iterations != 0:
         der_x, der_y = function.Gradient(x, y)
         first_value = function.Value(x, y)
         x -= alpha * der_x
         y -= alpha * der_y
         x_row.append(x)
         y_row.append(y)
-        delta = abs(first_value - function.Value(x, y))
-        if delta < epsilon:
+        if abs(first_value - function.Value(x, y)) < epsilon:
             in_minimum = True
-        if lim > 0:
-            lim -= 1
+        if iterations > 0:
+            iterations -= 1
     return x_row, y_row
 
 
@@ -226,8 +225,7 @@ def GradientDescent(function, x_0, y_0, lim=-1, alpha=0.1, epsilon=1E-5):
 # In[14]:
 
 def RandomPoint(random_area):
-    x, y = 2 * random_area * (random() - 0.5), 2 * random_area * (random() -0.5)
-    return x, y
+    return list(np.random.uniform(0, random_area, 2))
 
 
 # Создадим функцию, передав ей коэффициенты нашей функции. Запустим на ней алгоритм градиентного спуска с параметром $\alpha = 0.01$ и с параметром $\alpha = 0.1$, получив при этом две последовательности точек из алгоритма - траектории движения. Напечатаем последние точки (т.е. те, которые предположительно являются минимумами функции).
@@ -314,7 +312,7 @@ plt.show()
 
 rosenbrock = RosenbrockFunction()
 x, y = RandomPoint(2)
-x_row, y_row = GradientDescent(rosenbrock, x, y, lim=-1, alpha=1E-4, epsilon=1E-10)
+x_row, y_row = GradientDescent(rosenbrock, x, y, alpha=1E-4, epsilon=1E-10)
 print(x_row[-1], y_row[-1])
 print(len(x_row))
 
@@ -344,9 +342,7 @@ plt.show()
 
 class MSERegression(object):
     def Value(self, X, Y, coefs):
-        S = np.dot(X, coefs) - Y
-        loss = np.sum(S ** 2)
-        return loss
+        return np.linalg.norm(np.dot(X, coefs) - Y)
 
     def Gradient(self, X, Y, coefs):
         S = np.dot(X, coefs) - Y
@@ -368,7 +364,7 @@ class GradientClassifier(LinearClassifier):
             gradient = function.Gradient(X, Y, self.coefs)
             
             self.coefs = self.coefs - alpha * gradient
-            if abs(np.sum((np.dot(X, self.coefs) - Y) ** 2) - first_loss) < epsilon:
+            if abs(function.Value(X, Y, self.coefs) - first_loss) < epsilon:
                 in_minimum = True
 
 
@@ -454,7 +450,7 @@ class GradientClassifier(LinearClassifier):
                 alpha /= np.sum(D ** 2)
 
             self.coefs = self.coefs - alpha * gradient
-            if abs(np.sum((np.dot(X, self.coefs) - Y) ** 2) - first_loss) < epsilon:
+            if abs(function.Value(X, Y, self.coefs) - first_loss) < epsilon:
                 in_minimum = True
         if info:
             return np.array(Q_row)
@@ -680,13 +676,13 @@ plt.show()
 
 # In[37]:
 
-def Momentum(function, x_0, y_0, lim=-1, alpha=0.1, epsilon=1E-5, gamma=0.7):
+def Momentum(function, x_0, y_0, iterations=-1, alpha=0.1, epsilon=1E-5, gamma=0.7):
     x, y = x_0, y_0
     in_minimum = False
     x_row = [x]
     y_row = [y]
     sx_prev, sy_prev = 0, 0
-    while not in_minimum and lim != 0:
+    while not in_minimum and iterations != 0:
         der_x, der_y = function.Gradient(x, y)
         first_value = function.Value(x, y)
         sx = gamma * sx_prev + alpha * der_x
@@ -695,11 +691,10 @@ def Momentum(function, x_0, y_0, lim=-1, alpha=0.1, epsilon=1E-5, gamma=0.7):
         y -= sy
         x_row.append(x)
         y_row.append(y)
-        delta = abs(first_value - function.Value(x, y))
-        if delta < epsilon:
+        if abs(first_value - function.Value(x, y)) < epsilon:
             in_minimum = True
-        if lim > 0:
-            lim -= 1
+        if iterations > 0:
+            iterations -= 1
         sx_prev, sy_prev = sx, sy
     return x_row, y_row
 
@@ -710,7 +705,7 @@ def Momentum(function, x_0, y_0, lim=-1, alpha=0.1, epsilon=1E-5, gamma=0.7):
 
 some_function = TwoVarQuadricFunction([10, 1])
 x, y, = -10, -10
-x_row, y_row = GradientDescent(some_function, x, y, lim=-1, alpha=1E-2, epsilon=1E-8)
+x_row, y_row = GradientDescent(some_function, x, y, alpha=1E-2, epsilon=1E-8)
 x_row_momentum, y_row_momentum = Momentum(some_function, x, y, alpha=1E-2, epsilon=1E-8, gamma=0.8)
 
 
@@ -756,13 +751,13 @@ plt.show()
 
 # In[42]:
 
-def NAG(function, x_0, y_0, lim=-1, alpha=0.1, epsilon=1E-5, gamma=0.7):
+def NAG(function, x_0, y_0, iterations=-1, alpha=0.1, epsilon=1E-5, gamma=0.7):
     x, y = x_0, y_0
     in_minimum = False
     x_row = [x]
     y_row = [y]
     sx_prev, sy_prev = 0, 0
-    while not in_minimum and lim != 0:
+    while not in_minimum and iterations != 0:
         der_x, der_y = function.Gradient(x, y)
         first_value = function.Value(x, y)
         sx = gamma * sx_prev + alpha * function.Gradient(x - sx_prev, y - sy_prev)[0]
@@ -771,11 +766,10 @@ def NAG(function, x_0, y_0, lim=-1, alpha=0.1, epsilon=1E-5, gamma=0.7):
         y -= sy
         x_row.append(x)
         y_row.append(y)
-        delta = abs(first_value - function.Value(x, y))
-        if delta < epsilon:
+        if abs(first_value - function.Value(x, y)) < epsilon:
             in_minimum = True
-        if lim > 0:
-            lim -= 1
+        if iterations > 0:
+            iterations -= 1
         sx_prev, sy_prev = sx, sy
     return x_row, y_row
 
@@ -874,7 +868,7 @@ Q_2 = sadagrad.fit(logreg, X_train, Y_train, iteration=1, batch=10, alpha=1E-3, 
 
 # Прежде всего посмотрим на качество классификации на отложенной выборке, чтобы убедиться в том, что классификаторы обучились достаточно хорошо.
 
-# In[49]:
+# In[48]:
 
 Y_pred_sadagrad = sadagrad.predict(X_test)
 Y_pred_sgd = sgd.predict(X_test)
@@ -883,7 +877,7 @@ print(metrics.accuracy_score(Y_test, Y_pred_sgd), metrics.accuracy_score(Y_test,
 
 # Видим, что оба классификатора обучились достаточно хорошо, но адаптивный градиент чуть лучше. Уже можно сделать предположение о его лучшей сходимости. Посмотрим на графики зависимости ошибки от итерации алгоритма для обоих классификаторов.
 
-# In[50]:
+# In[49]:
 
 fig, ax = plt.subplots(1, figsize=(16, 8))
 
@@ -919,7 +913,7 @@ plt.show()
 # В качестве еще одной модификации рассмотрим алгоритм $Adam$. В нем мы будем делать следующее:
 # $$m_k = \beta_1 m_{k-1} + (1 - \beta_1) \nabla Q, \\ v_k = \beta_2 v_{k-1} + (1 - \beta_2) \nabla Q, $$ т.е. считать среднее значение градиента и среднее значение квадрата градиента. Далее положим $$m^*_k = \frac{m_k}{1 - \beta_1^k}, \\ v^*_k = \frac{v_k}{1 - \beta_2^k},$$ т.е. при с ростом шагов будем уменьшать обе величины. В итоге уменьшим веса по тому же принципу, что и в $Adadelta$: $$w_{k+1} = w_k - \frac{\alpha}{\sqrt{v^*_k + \varepsilon}}m^*_k.$$
 
-# In[51]:
+# In[50]:
 
 class StochasticAdam(LinearClassifier):
     def step(self, function, X, Y, m, v, step, alpha=1E-3, epsilon=1E-8, info=False,            beta1=0.9, beta2=0.999):
@@ -962,7 +956,7 @@ class StochasticAdam(LinearClassifier):
 
 # Попробуем обучить оба классификатора на данных $MNIST$ с одинаковыми значениями параметров и размером батча 10. Для начала посмотрим на результат - долю верных ответов на тестовой выборке.
 
-# In[52]:
+# In[51]:
 
 sgd = SGD(X_train.shape[1], 'zeros')
 s_adam = StochasticAdam(X_train.shape[1], 'zeros')
@@ -977,7 +971,7 @@ print(metrics.accuracy_score(Y_test, Y_pred_sgd), metrics.accuracy_score(Y_test,
 
 # Видно, что оба классификатора хорошо справляются с задачей. Посмотрим же теперь на графики их сходимости.
 
-# In[53]:
+# In[52]:
 
 fig, ax = plt.subplots(1, figsize=(16, 8))
 
