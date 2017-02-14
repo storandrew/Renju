@@ -35,15 +35,20 @@
 # 
 # Перейдем к реализации. Для удобства будем считать, что нам заранее известны средние значения выигрышей по конкретным переходам.
 
-# In[184]:
+# ### Implementation
 
+# In[1]:
+
+get_ipython().magic('matplotlib inline')
 import numpy as np
 import matplotlib.pyplot as plt
 import time
-np.random.seed(42)
+np.random.seed(228)
 
 
-# In[185]:
+# Для начала зададим среду. Пусть имеется $S$ состояний и $A$ действий. Среда определяется двумя характеристиками: матрицей переходов $T$ размера $A \times S \times S$ и матрицей наград R такого же размера. Элемент $T_{a, s_1, s_2}$ задает вероятность перехода из состояния $s_1$ в состояние $s_2$ при выборе действия $a$. Элемент $R_{a, s_1, s_2}$ равен математическому ожиданию награды $R$ при переходе из состояния $s_1$ в состояние $s_2$ по действию $a$.
+
+# In[2]:
 
 class Environment(object):
     def __init__(self, states, actions):
@@ -68,10 +73,14 @@ class Environment(object):
         return self.rewards
 
 
-# In[258]:
+# Теперь смоделируем непосредственно Марковский процесс принятия решений. Для сравнения скорости сходимости двух методов ($value \ iteration$ и $policy \ iteration$) обучим модель с очень маленьким значением $\varepsilon$ (скажем, $10^{-10}$). Можно убедиться, что при таких значениях оба метода дадут почти равные оценки состояний. Назовем полученную функцию оценки состояний $base$. Далее будем на каждой итерации с разумным значением $\varepsilon$ (пусть $10^{-4}$) сравнивать сравнивать $base$ и текущую функцию оценки состояния. Для этого определим следующее значение:
+# $$variation(V, V') = \max\limits_{s \in S} \left|V_s - V'_s \right|.$$
+# Ясно, что чем меньше значение $variation(base, current)$, тем ближе текущая оценка позиции к эталонной. Также будем запоминать время каждого сравнения.
+
+# In[3]:
 
 '''Markov Decision Process model
-        
+----------------------------------------------
 S - number of states
 A - number of actions
 
@@ -81,24 +90,33 @@ R = array[A x S x S] - matrix of expected rewards:
     R[a, s1, s2] - expected reward for transition from state s1 to state s2 by action a
 
 discount - coefficient of discounting from [0, 1)
-
+----------------------------------------------
 V = array[S] - state-value function
 Q = array[A x S] - action-value function
 
 policy = array[A x S] - policy: policy[a, s] - probability of choosing action a in state s
-
+----------------------------------------------
+cmp - flag of comparison, if true,
+    the variation between base and current state-value functions is computed
+history - information about state-value function, the list of tuples (v, t),
+    where v is the variation in the moment t
+time0 - to set the timer to the beginning of learning
+----------------------------------------------
 '''
 
 class MDP(object):
-    def __init__(self, transitions, rewards, discount):        
-        self.S = transitions.shape[1]
-        self.A = transitions.shape[0]
-        self.T = transitions
-        self.R = rewards
+    def __init__(self, T, R, discount):        
+        self.S = T.shape[1]
+        self.A = T.shape[0]
+        self.T = T
+        self.R = R
         self.discount = discount
         self.V = np.random.normal(size=self.S)
         self.Q = np.zeros((self.A, self.S))
         self.__initPolicy__()
+        self.history = []
+        self.time0 = 0
+        self.cmp = 0
     
     def __initPolicy__(self):
         self.policy = np.zeros((self.A, self.S))
@@ -109,7 +127,7 @@ class MDP(object):
             for action in best_actions:
                 self.policy[action, state] = 1 / best_actions.shape[0]
     
-    def __iterativePolicyEval__(self, epsilon, max_iter=1000):
+    def __iterativePolicyEval__(self, epsilon, baseV, max_iter=1000):
         done = 0
         iteration = 0
         while not done:
@@ -122,6 +140,9 @@ class MDP(object):
             variation = np.abs(V_prev - self.V).max()
             if variation < epsilon or iteration > max_iter:
                 done = 1
+            if self.cmp:
+                base_variation = np.abs(self.V - baseV).max()
+                self.history.append([base_variation, time.time() - self.time0])
         return iteration, variation
     
     def __policyImprovement__(self):
@@ -136,23 +157,33 @@ class MDP(object):
                 self.stable_policy = 0
             del old_actions
     
-    def policyIteration(self, epsilon=1e-4, verbose=0):
-        time0 = time.time()
+    def policyIteration(self, epsilon=1e-4, verbose=0, baseV=np.zeros((0,0))):
+        if baseV.any():
+            self.cmp = 1
+        else:
+            self.cmp = 0
+        self.history = []
+        self.time0 = time.time()
         self.stable_policy = 0
         inner_iterations = 0
         while not self.stable_policy:
-            current_iterations, variation = self.__iterativePolicyEval__(epsilon=epsilon)
+            current_iterations, variation = self.__iterativePolicyEval__(epsilon=epsilon, baseV=baseV)
             inner_iterations += current_iterations
             self.stable_policy = 1
             self.__policyImprovement__()
             if verbose:
                 print('Iterations: ' + str(inner_iterations), end='\t')
-                print('\ttime: ' + str(time.time() - time0), end='\t')
+                print('\ttime: ' + str(time.time() - self.time0), end='\t')
                 print('\tVariation: ' + str(variation))
             
-    def valueIteration(self, epsilon=1e-4, verbose=0):
+    def valueIteration(self, epsilon=1e-4, verbose=0, baseV=np.zeros((0,0))):
+        self.history = []
+        if baseV.any():
+            self.cmp = 1
+        else:
+            self.cmp = 0
         delta = epsilon
-        time0 = time.time()
+        self.time0 = time.time()
         iters = 1
         variation = 0
         while delta >= epsilon:
@@ -163,6 +194,9 @@ class MDP(object):
                 self.V[state] = np.max(actions_exp_rewards)
                 variation = np.abs(v_prev - self.V[state])
                 delta = max(variation, delta)
+            if self.cmp:
+                base_variation = np.abs(self.V - baseV).max()
+                self.history.append([base_variation, time.time() - self.time0])
             if verbose:
                 print('Iteration: ' + str(iters), end='\t')
                 print('\ttime: ' + str(time.time() - time0), end='\t')
@@ -180,7 +214,9 @@ class MDP(object):
         return self.V
 
 
-# In[259]:
+# Сгенерируем среду с 50 действиями и 100 состояниями.
+
+# In[4]:
 
 S = 100
 A = 50
@@ -190,44 +226,85 @@ P = env.getTransitions()
 R = env.getRewards()
 
 
-# In[261]:
+# Возьмем параметр дисконтирования равный $0.8$. Запустим два метода с $\varepsilon = 10^{-10}$. Убедимся, что функции оценки состояний почти равны и запомним функцию для одной из модели. Также запомним стратегию.
 
-mdpVI = MDP(P, R, 0.8)
-mdpVI.valueIteration(1e-4, verbose=1)
+# In[5]:
+
+mdpPIbase = MDP(P, R, 0.8)
+mdpPIbase.policyIteration(1e-10, verbose=0)
+mdpVIbase = MDP(P, R, 0.8)
+mdpVIbase.valueIteration(1e-10, verbose=0)
+print(np.abs(mdpPIbase.getStateEval() - mdpVIbase.getStateEval()).sum())
+baseStateEval = mdpVIbase.getStateEval()
+basePolicy = mdpVIbase.getPolicy()
 
 
-# In[262]:
+# ### Comparison
+# Теперь сравним сходимость методов. Положим $\varepsilon = 0.4$. Будем использовать вышеописанный метод.
+
+# In[6]:
 
 mdpPI = MDP(P, R, 0.8)
-mdpPI.policyIteration(1e-4, verbose=1)
+mdpPI.policyIteration(1e-4, 0, baseStateEval)
+mdpVI = MDP(P, R, 0.8)
+mdpVI.valueIteration(1e-4, 0, baseStateEval)
+historyVI = np.array(mdpVI.history)
+historyPI = np.array(mdpPI.history)
 
 
-# In[263]:
+# Убедимся, что стратегии получились одинаковыми.
 
-(mdpPI.getPolicy() == mdpVI.getPolicy()).sum()
+# In[7]:
+
+np.array_equal(basePolicy, mdpPI.getPolicy()) and np.array_equal(basePolicy, mdpVI.getPolicy())
 
 
-# In[266]:
+# Наконец, посмотрим на графики в осях $time \times variation$.
+
+# In[8]:
+
+fig = plt.figure(figsize=(10, 5))
+
+plt.plot(historyPI[:, 1], historyPI[:, 0], c='red', label='Policy iteration')
+plt.plot(historyVI[:, 1], historyVI[:, 0], c='blue', label='Value iteration')
+
+plt.xlabel('Time')
+plt.ylabel('Variation')
+plt.legend()
+plt.grid()
+plt.show()
+
+
+# Видно, что оба метода сходятся достаточно быстро, однако в данной задаче $value \ iteration$ сходится значительно быстрее, поэтому далее будем рассматривать его.
+# 
+# Рассмотрим, как меняется значение $state \ value$ функции для некоторых состояний в зависимости от значения параметра дисконтирования.
+
+# In[9]:
 
 discounters = [0.1, 0.3, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95]
 values = np.zeros((len(discounters), S))
 for d in range(len(discounters)):
     mdp = MDP(P, R, discounters[d])
-    mdp.policyIteration(1e-6)
+    mdp.valueIteration(1e-6)
     values[d, :] = mdp.getStateEval()
 
 
-# In[267]:
+# In[10]:
 
-fig = plt.figure(figsize=(16, 8))
+fig = plt.figure(figsize=(10, 5))
 
-states = [0, 1, 2, 3, 4]
+states = [0, 10, 20, 30, 40]
 
 for s in range(len(states)):
     plt.plot(discounters, values[:, s])
 
+plt.xlabel('Discount')
+plt.ylabel('Value')
+plt.grid()
 plt.show()
 
+
+# Видно, что при стремлении параметра к 1 значения сильно растут, что ожидаемо ввиду определения $state \ value$ функции через ряды. При малых значениях параметра значения функции, напротив, убывают, однако медленно.
 
 # In[ ]:
 
