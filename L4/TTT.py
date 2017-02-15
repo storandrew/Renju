@@ -41,8 +41,9 @@ def checkDiagonal(position, c):
         return True
     return False
 
-def printPosition(position):
-    clear_output()
+def printPosition(position, cl=1):
+    if cl:
+        clear_output()
     for i in range(0, 9, 3):
         print(position[i : i + 3])
 
@@ -59,6 +60,7 @@ class mdpPlayer(object):
         self.__generateStates__(self.curPosition)
         self.Q = np.zeros((9, self.S))
         self.eps = epsilon
+        self.eps0 = epsilon
         self.alpha = alpha
         self.discount = discount
         self.lastA = None
@@ -66,14 +68,13 @@ class mdpPlayer(object):
         self.learn = 1
         self.mode = mode
     
-    def takeResponse(self, new_position, reward=None):
+    def takeResponse(self, new_position, reward):
         if not self.learn:
             return
         
         self.curPosition = new_position
         newS = self.state2num[self.curPosition]
         if reward == None:
-            self.lastS = newS
             return
         if self.mode == 'sarsa':
             newA = self.__chooseAction__(self.curPosition)
@@ -83,12 +84,23 @@ class mdpPlayer(object):
             newA = self.__chooseAction__(self.curPosition)
             self.eps = epsilon
 
-        self.Q[self.lastA, self.lastS] = (1 - self.alpha) * self.Q[self.lastA, self.lastS] +         self.alpha * (reward + self.discount * self.Q[newA, newS])
-
-        self.lastS = newS 
+        increment = self.alpha * (reward + self.discount * self.Q[newA, newS] - self.Q[self.lastA, self.lastS])
+        rotatedActionState = [(self.lastA, self.lastS)]
+        rotatedS = self.num2state[self.lastS]
+        rotatedA = self.lastA
         
+        for i in range(3):
+            rotatedS = self.__rotate__(rotatedS)
+            rotatedA = 3 * (rotatedA % 3) + 2 - rotatedA // 3
+            rotatedActionState.append((rotatedA, self.state2num[rotatedS]))
+        
+        for action, state in rotatedActionState:
+            self.Q[action, state] += increment
+        
+                
     def takeAction(self, position):
         self.lastA = self.__chooseAction__(position)
+        self.lastS = self.state2num[position]
         return self.lastA
     
     def __chooseAction__(self, position):
@@ -109,7 +121,7 @@ class mdpPlayer(object):
             for a in range(actions.shape[0]):
                 values[a] = self.Q[actions[a], state]
             best_value = np.max(values)
-            return actions[np.random.choice(np.where(values == best_value)[0])]
+            return actions[np.random.choice(np.flatnonzero(values == best_value))]
         
     def __generateStates__(self, position, player=0):
         pos_type = checkPosition(position)
@@ -130,6 +142,10 @@ class mdpPlayer(object):
                     self.__generateStates__(new_position, 1 - player)
         return
     
+    def __rotate__(self, pos):
+        new_pos = pos[6] + pos[3] + pos[0] + pos[7] + pos[4] + pos[1] + pos[8] + pos[5] + pos[2]
+        return new_pos
+    
     def playMode(self):
         self.eps = 0
         self.learn = 0
@@ -138,8 +154,8 @@ class mdpPlayer(object):
         self.eps = 1
         self.learn = 0
     
-    def learnMode(self, epsilon):
-        self.eps = epsilon
+    def learnMode(self):
+        self.eps = self.eps0
         self.learn = 1
 
 
@@ -207,6 +223,7 @@ class Match(object):
                         print('\nDraw')
                         if type(player0) == humanPlayer or type(player1) == humanPlayer:
                             time.sleep(5)
+                            print('')
                     finished = 1
                 elif pos_type == 'w':
                     self.crosseswin += 1
@@ -215,6 +232,7 @@ class Match(object):
                         print('\nCrosses win')
                         if type(player0) == humanPlayer or type(player1) == humanPlayer:
                             time.sleep(5)
+                            print('')
                     finished = 1
             else:
                 move = player1.takeAction(self.position)
@@ -227,17 +245,36 @@ class Match(object):
                         print('\nNoughts win')
                         if type(player0) == humanPlayer or type(player1) == humanPlayer:
                             time.sleep(5)
+                            print('')
                     finished = 1
             self.player = 1 - self.player
         self.position = '.........'
         self.player = 0
     
-    def trainSet(self, number, player0, player1):
+    def trainSet(self, number, player0, player1, info=0):
+        history = []
         time0 = time.time()
         self.__init__()
-        for i in range(1, number+1):
+        for i in range(number):
             self.__train__(player0, player1)
+            if info and i % 1000 == 0:
+                player0.playMode()
+                randnt = mdpPlayer(mode='sarsa', player=1)
+                randnt.randomMode()
+                self.testSet(10000, player0, randnt)
+                player0.learnMode()
+                crosses = self.crosseswin + self.draw
+                player1.playMode()
+                randcr = mdpPlayer(mode='sarsa', player=0)
+                randcr.randomMode()
+                self.testSet(10000, randcr, player1)
+                player1.learnMode()
+                noughts = self.noughtswin + self.draw
+                history.append([crosses, noughts])
+                if sum(history[-1]) == 20000:
+                    break
         print('\t' + str(time.time() - time0))
+        return np.array(history)
         
     
     def testSet(self, number, player0, player1, verbose=0):
@@ -247,7 +284,6 @@ class Match(object):
             if verbose == 1 and i % 100 == 0:
                 print('\r\tCrosses: ' + str(self.crosseswin) + ', Noughts: ' + str(self.noughtswin) +                       ', Draw: ' + str(self.draw), end=' ')
                 time.sleep(0.0001)
-        print('')
 
 
 # In[5]:
@@ -267,15 +303,9 @@ class humanPlayer(object):
 
 # In[6]:
 
-def trainNtest(mtch, cr, nt, explore, exploit):
-    cr.learnMode(0.85)
-    nt.learnMode(0.85)
-    print('Exploration learning time, s:')
-    mtch.trainSet(explore, cr, nt)
-    cr.learnMode(0.15)
-    nt.learnMode(0.15)
-    print('\nExploitation learning time, s:')
-    mtch.trainSet(exploit, cr, nt)
+def trainNtest(mtch, cr, nt, games, info=0):
+    print('\nTraining time, s:')
+    history = mtch.trainSet(games, cr, nt, info)
     cr.playMode()
     nt.playMode()
     print('\nTrained crosses vs Trained noughts:')
@@ -283,39 +313,75 @@ def trainNtest(mtch, cr, nt, explore, exploit):
     cr.playMode()
     nt.randomMode()
     print('\nTrained crosses vs Random noughts:')
-    mtch.testSet(100000, cr, nt, verbose=1)
+    mtch.testSet(10000, cr, nt, verbose=1)
     cr.randomMode()
     nt.playMode()
     print('\nRandom crosses vs Trained noughts:')
-    mtch.testSet(100000, cr, nt, verbose=1)
+    mtch.testSet(10000, cr, nt, verbose=1)
+    if info:
+        return history
 
 
 # In[7]:
 
 mtch = Match()
-crS = mdpPlayer(player=0, mode='sarsa', alpha=0.15, epsilon=0.85, discount=0.85)
-ntS = mdpPlayer(player=1, mode='sarsa', alpha=0.15, epsilon=0.85, discount=0.85)
-trainNtest(mtch, crS, ntS, 100000, 50000)
+crS = mdpPlayer(player=0, mode='sarsa', epsilon=0.3, alpha=0.3, discount=0.9)
+ntS = mdpPlayer(player=1, mode='sarsa', epsilon=0.3, alpha=0.3, discount=0.9)
+historyS = trainNtest(mtch, crS, ntS, 50000, 1)
 
 
 # In[8]:
 
-crQ = mdpPlayer(player=0, mode='q', alpha=0.15, epsilon=0.85, discount=0.85)
-ntQ = mdpPlayer(player=1, mode='q', alpha=0.15, epsilon=0.85, discount=0.85)
-trainNtest(mtch, crQ, ntQ, 100000, 50000)
+crQ = mdpPlayer(player=0, mode='q', epsilon=0.3, alpha=0.3, discount=0.9)
+ntQ = mdpPlayer(player=1, mode='q', epsilon=0.3, alpha=0.3, discount=0.9)
+historyQ = trainNtest(mtch, crQ, ntQ, 50000, 1)
 
 
-# In[8]:
+# In[9]:
 
-hp = humanPlayer()
+fig = plt.figure(figsize=(10, 5))
+
+plt.plot(np.arange(historyS.shape[0]), historyS[:, 0], c='red', label='SARSA, crosses')
+plt.plot(np.arange(historyS.shape[0]), historyS[:, 1], c='blue', label='SARSA, noughts')
+plt.plot(np.arange(historyQ.shape[0]), historyQ[:, 0], c='green', label='Q-learning, crosses')
+plt.plot(np.arange(historyQ.shape[0]), historyQ[:, 1], c='purple', label='Q-learning, noughts')
+
+plt.xlabel('Iteration, thousands')
+plt.ylabel('Wins and Draws')
+plt.legend()
+plt.grid()
+plt.show()
 
 
-# In[19]:
+# In[10]:
 
-crS.learnMode(0.15)
-ntS.playMode()
-mtch.trainSet(50000, crS, ntS)
+mtch = Match()
+hPlayer = humanPlayer()
+crQ.playMode()
+ntQ.playMode()
 
+
+# In[11]:
+
+mtch.testSet(1, crQ, hPlayer, verbose=2)
+
+
+# In[12]:
+
+mtch.testSet(1, crQ, hPlayer, verbose=2)
+
+
+# In[13]:
+
+mtch.testSet(1, hPlayer, ntQ, verbose=2)
+
+
+# In[14]:
+
+mtch.testSet(1, hPlayer, ntQ, verbose=2)
+
+
+#  
 
 # In[ ]:
 
