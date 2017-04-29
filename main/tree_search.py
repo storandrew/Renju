@@ -1,11 +1,11 @@
+from __future__ import print_function
 import numpy as np
-import keras
+import argparse
 from keras.models import Sequential
 from keras.layers.core import Flatten, Dense, Dropout
 from keras.layers.convolutional import Convolution2D, MaxPooling2D
 from keras.utils import np_utils
 from keras.models import load_model
-
 from itertools import product
 
 
@@ -17,8 +17,16 @@ def num_to_coords(number):
     return number // 15, number % 15
 
 
+def coords_to_str(line, col):
+    if col >= ord('i') - ord('a'):
+        col += 1
+    string = chr(col + ord('a'))
+    string += str(line)
+    return string
+
+
 def print_board(position):
-    print('  |  a|b|c|d|e|f|g|h|i|j|k|l|m|n|o')
+    print('  |  a|b|c|d|e|f|g|h|j|k|l|m|n|o|p')
     print('__|_______________________________')
     for line, column in product(range(15), range(15)):
         if column == 0:
@@ -68,7 +76,7 @@ def check_cell(position, line, col):
 
 
 class Node():
-    def __init__(self, position, color, move=None, threshold=10):
+    def __init__(self, position, color, move=None):
         self.position = position
         self.actions = np.zeros(225)
         self.probs = np.zeros(225)
@@ -84,6 +92,7 @@ class Node():
         self.children = []
         self.threshold = threshold
 
+
     def add_child(self, move):
         new_position = np.copy(self.position)
         new_position[move[0], move[1]] = self.color
@@ -93,9 +102,11 @@ class Node():
         self.visits[number] = 1
         self.observed[number] = 1
 
+
     def is_explored(self):
         obs = len(self.children)
         return obs == self.threshold or obs == self.actions.sum()
+
 
     def is_empty(self):
         return not len(self.children)
@@ -103,13 +114,17 @@ class Node():
 
 class MCTSPlayer():
     def __init__(self, mode):
-        self.policy = load_model('supervised_policy.h5')
-        self.value = load_model('supervised_value.h5')
-        self.mode = 1 if mode == 'crosses' else 2
+        self.rollout = load_model('supervised_rollout.h5')
+        self.policy = load_model('supervised_policy2.h5')
+        self.value = load_model('supervised_value2.h5')
+        self.mode = 1 if mode == 'black' else 2
+
 
     def __del__(self):
         del self.policy
         del self.value
+        del self.rollout
+
 
     def propagate(self, path, reward):
         current = self.root
@@ -121,23 +136,18 @@ class MCTSPlayer():
         del path
         return
 
+
     def tree_search(self, iterations):
         for i in range(iterations):
-            print('Simulation', i)
-            print(len(self.root.children))
+            print('\rSimulation', i, end='')
             path, reward = self.simulate()
             self.propagate(path, reward)
 
-    def rollout(self, position, move):
+
+    def make_rollout(self, position, move):
         last_move = move
         color = 3 - position[last_move[0], last_move[1]]
         while not check_cell(position, last_move[0], last_move[1]):
-            randact = []
-            for line, col in product(range(15), range(15)):
-                if not position[line, col]:
-                    randact.append(coords_to_num(line, col))
-            action = np.random.choice(randact)
-            '''
             actions = np.zeros(225)
             X = np.zeros((1, 15, 15, 4))
             for line, col in product(range(15), range(15)):
@@ -150,11 +160,13 @@ class MCTSPlayer():
                 else:
                     actions[coords_to_num(line, col)] = 1
                 X[0, line, col, 3] = 1
-            probs = self.policy.predict_proba(X
+            if not actions.sum():
+                return 0
+            probs = self.rollout.predict_proba(X
                     , batch_size=1
                     , verbose=0)
             action = np.argmax(probs * actions)
-            '''
+
             last_move = num_to_coords(action)
             position[last_move[0], last_move[1]] = color
             color = 3 - color
@@ -183,12 +195,14 @@ class MCTSPlayer():
                 move = num_to_coords(action)
                 current.add_child(move)
                 position = np.copy(current.children[-1].position)
-                reward = self.rollout(position, move)
+                reward = self.make_rollout(position, move)
                 path.append(current.children[-1])
                 break
             if current.is_explored():
+                print_board(current.position)
                 action = np.argmax(current.probs * current.actions / (1 + current.visits))
                 move = num_to_coords(action)
+                print(coords_to_str(move[0], move[1]))
             else:
                 action = np.argmax(current.probs * current.actions\
                         * (1 - current.observed))
@@ -196,9 +210,11 @@ class MCTSPlayer():
                 current.add_child(move)
             for child in current.children:
                 if child.number == action:
+                    print('hui')
                     current = child
             path.append(current)
         return path, reward
+
 
     def move(self, position):
         self.root = Node(position, self.mode)
@@ -213,16 +229,42 @@ class Player():
     def __init__(self):
         pass
 
+
     def move(self, position):
         pass
 
 
 class HumanPlayer(Player):
+    def __init__(self, mode):
+        pass
     def move(self, position):
         print_board(position)
-        move = input()
-        x, y = ord(move[0]) - ord('a'), int(move[1:]) - 1
-        return x, y
+        letter = 'abcdefghjklmnop'
+        digit = '0123456789'
+        while 1:
+            move = input()
+            if len(move) < 2 or len(move) > 3:
+                print('Invalid input')
+                continue
+            if move[0] not in letter:
+                print('Invalid input')
+                continue
+            if move[1] not in digit:
+                print('Invalid input')
+                continue
+            if len(move) == 3 and move[2] not in digit:
+                print('Invalid input')
+                continue
+            x, y = ord(move[0]) - ord('a'), int(move[1:]) - 1
+            if ord(move[0]) > ord('i'):
+                x -= 1
+            if y > 14 or y < 0:
+                print('Invalid input')
+                continue
+            if position[x, y]:
+                print('Invalid input')
+                continue
+            return x, y
 
 
 class RandomPlayer(Player):
@@ -236,8 +278,9 @@ class RandomPlayer(Player):
 
 class PolicyNetwork(Player):
     def __init__(self, mode):
-        self.model = load_model('supervised_policy.h5')
-        self.mode = 1 if mode == 'crosses' else 2
+        self.model = load_model('supervised_policy2.h5')
+        self.mode = 1 if mode == 'black' else 2
+
 
     def move(self, position):
         X = np.zeros((1, 15, 15, 4))
@@ -252,34 +295,57 @@ class PolicyNetwork(Player):
             else:
                 possible[coords_to_num(line, col)] = 1
             X[0, line, col, 3] = 1
-        probs = self.model.predict_proba(X, batch_size=1, verbose=0)
+        probs = self.model.predict(X, batch_size=1, verbose=0)
         probs *= possible
         best_move = np.argmax(probs)
         return num_to_coords(best_move)
 
 
 class Referee():
-    def __init__(self, crosses, naughts):
+    def __init__(self, crosses, noughts):
         self.crosses = crosses
-        self.naughts = naughts
+        self.noughts = noughts
+
 
     def play(self):
-        position = np.zeros((15, 15), dtype=np.int32)
+        position = np.zeros((15, 15))
         while 1:
             line, col = self.crosses.move(position)
             position[line, col] = 1
             if check_cell(position, line, col):
-                print('Crosses win!\n')
+                print('BLACK WIN!\n')
                 print_board(position)
                 return 1
-            line, col = self.naughts.move(position)
+            line, col = self.noughts.move(position)
             position[line, col] = 2
             if check_cell(position, line, col):
-                print('Naughts win!\n')
+                print('WHITE WIN!\n')
                 print_board(position)
                 return -1
 
 
-player1, player2 = HumanPlayer(), PolicyNetwork('naughts')
-ref = Referee(player1, player2)
-ref.play()
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('black')
+    parser.add_argument('white')
+    args = parser.parse_args()
+    if args.black == 'me':
+        player1 = HumanPlayer('black')
+    elif args.black == 'policy':
+        player1 = PolicyNetwork('black')
+    elif args.black == 'mcts':
+        player1 = MCTSPlayer('black')
+
+    if args.white == 'me':
+        player2 = HumanPlayer('white')
+    elif args.white == 'policy':
+        player2 = PolicyNetwork('white')
+    elif args.white == 'mcts':
+        player2 = MCTSPlayer('white')
+
+    ref = Referee(player1, player2)
+    ref.play()
+
+
+if __name__ == "__main__":
+    main()
