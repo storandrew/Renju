@@ -25,4 +25,4 @@
 5.  Загрузите папку *lib* и файл *game.py*
 6.  Загрузите [первый](https://www.dropbox.com/s/su5r8qcqvrcyhbk/supervised_policy.h5?dl=0) и [второй](https://www.dropbox.com/s/pvwnmyv1lcjq0jx/supervised_rollout.h5?dl=0) файлы с моделями для игры
 7.  Загруженные файлы разместите в папке */lib/player* с именами *supervised_policy.h5* (первый) и *supervised_rollout.h5* (второй)
-8.  Запустите команду *./game*
+8.  Запустите команду *./game.py*
