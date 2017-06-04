@@ -2,7 +2,7 @@
 #### Стороженко Андрей Андреевич, БПМИ152
 
 1.  [Статья DeepMind](https://storage.googleapis.com/deepmind-media/alphago/AlphaGoNaturePaper.pdf) про AlphaGo, на которой основывается наш проект.
-2.  [Отчет по проекту](Renju/Renju.pdf).
+2.  [Отчет по проекту](Renju.pdf).
 
 ## Требования
 
